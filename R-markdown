@@ -1,0 +1,230 @@
+---
+title: "Electric Vehicle Sales Report"
+author: "By Ifeoluwa Omosowoeni"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    social: menu
+    source_code: embed
+---
+
+```{r setup, include=FALSE}
+# Importing the needed Packages
+library(dplyr)
+library(ggplot2)
+library(openxlsx)
+library(flexdashboard)
+library(plotly)
+
+# Loading the datasets
+ev_data <- read.xlsx("C:/Users/Paul Osaji & Co/Documents/R Project/ev_03.xlsx")
+rep_data <- read.xlsx("C:/Users/Paul Osaji & Co/Documents/R Project/rep_03.xlsx")
+
+#Combine both tables to have a broader picture
+combined_table = inner_join(rep_data, ev_data, "rep_id")
+
+# Check for missing values
+sum(is.na(combined_table))
+
+# Data Cleaning & Preparation
+## Removing missing values
+clean_table <- na.omit(combined_table)
+
+# Checking for Duplicate values
+cleaned_table <- unique(clean_table)
+
+# Filter out columns to include only the commissions and gender column
+filter_1 <- cleaned_table %>%
+  select(commissions, gender)
+
+# Calculate the mean commissions earned by each gender
+commission_by_gender <- filter_1 %>% 
+  group_by(gender) %>% 
+  summarise(mean_commission = mean(commissions))
+
+# Filter out columns to include commission and marketing column
+filter_2 <- cleaned_table %>%
+  select(commissions, marketing)
+
+# Filter out columns to include only commissions, product and buyer columns
+filter_3 <- cleaned_table %>%
+  select(commissions, product, buyer)
+
+# Filter out columns to include only commission and Product columns
+filter_4 <- cleaned_table %>% 
+  select(commissions, product)
+
+pie_chart_data <- filter_4 %>%
+  group_by(product) %>% 
+  summarise(Total_commissions = sum(commissions))
+
+# Filter out data to include only commissions, marketing, product, buyer, training, experience and qualification
+filtered_data <- cleaned_table %>%
+  select(commissions, marketing, product, buyer, training, experience, qualification)
+
+# Create a correlation matrix to identify relationships between variables
+correlation_matrix <- cor(filtered_data[, c("commissions", "marketing", "experience")])
+
+socials_data <- cleaned_table %>%
+  select(commissions, campaign, product)
+
+# Group the data by marketing channel and product type, and calculate total commission earned
+sales_by_channel_product <- socials_data %>%
+  group_by(campaign, product) %>%
+  summarise(total_commission = sum(commissions))
+
+# Calculate commission earned by product type
+commission_by_product <- aggregate(cleaned_table$commissions, by=list(product=cleaned_table$product), FUN=sum)
+
+# Calculate commission earned by sales representative
+commission_by_rep <- aggregate(cleaned_table$commissions, by=list(rep_id=cleaned_table$rep_id), FUN=sum)
+
+# Calculate commission earned by customer profile
+commission_by_profile <- aggregate(cleaned_table$commissions, by=list(buyer=cleaned_table$buyer), FUN=sum)
+
+# Calculate commission earned with and without promotions
+commission_with_promo <- sum(cleaned_table$commissions[cleaned_table$promotions == "yes"])
+commission_without_promo <- sum(cleaned_table$commissions[cleaned_table$promotions == "no"])
+
+promo_data <- data.frame(
+  Promotions = c("With Promotions", "Without Promotions"),
+  Total_Commission_Earned = c(commission_with_promo, commission_without_promo)
+)
+
+# Count the number of each vehicle sold with and without promotion
+with_promotion <- table(cleaned_table$product[cleaned_table$promotions == "yes"])
+without_promotion <- table(cleaned_table$product[cleaned_table$promotions == "no"])
+
+# Combine the counts into a data frame
+promotion_data <- data.frame(
+  product = names(with_promotion),
+  with_promotion = with_promotion,
+  without_promotion = without_promotion
+)
+
+# Aggregate marketing spend and number of products sold by product category
+marketing_purchase_summary <- cleaned_table %>%
+  group_by(product) %>%
+  summarise(total_marketing_spend = sum(marketing),
+            total_products_sold = sum(purchase))
+
+
+```
+
+
+PAGE 1
+=======================================================================
+
+Row
+-----------------------------------------------------------------------
+
+### Chart (1)
+
+```{r}
+a = ggplot(filter_2, aes(x = marketing, y = commissions)) +
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE, color = "red") +  # Add line of best fit using linear regression
+  labs(x = "Marketing Spend ($)",
+       y = "Commission earned ($)",
+       title =  "Relationship between Marketing Spend and Commission Earned")
+ggplotly(a)
+```
+
+
+### Chart (2)
+
+```{r}
+plot_ly(data = promotion_data, x = ~product, y = ~with_promotion, type = "bar", name = "With Promotion") %>%
+  add_trace(y = ~without_promotion, name = "Without Promotion") %>%
+  layout(title = "Number of Each Vehicle Sold with and without Promotion",
+         xaxis = list(title = "Product"),
+         yaxis = list(title = "Count"),
+         barmode = "group")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### Chart (3)
+
+```{r}
+pie_chart <- plot_ly(pie_chart_data, labels = ~product, values = ~Total_commissions, type = 'pie', textinfo = 'percent', textposition = 'inside',
+                     marker = list(colors = rainbow(length(unique(pie_chart_data$product))))) %>%
+  layout(title = "Distribution of commission from Product Type")
+
+pie_chart
+```
+
+### Chart (4)
+
+```{r}
+f = ggplot(sales_by_channel_product, aes(x = campaign, y = total_commission, fill = product)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Marketing Channel",
+       y = "Total Commission Earned ($)",
+       fill = "Product Type",
+       title = "Effectiveness of Marketing Channels by Product Type") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+plotly_plot <- ggplotly(f)
+
+
+plotly_plot
+```
+
+
+PAGE 2
+=======================================================================
+
+Row
+-----------------------------------------------------------------------
+
+### Product Mix Analysis
+
+```{r}
+plot_ly(data = commission_by_product, x = ~product, y = ~x, type = "bar",
+        marker = list(color = "blue"),
+        name = "Total Commission Earned (£)",
+        text = ~paste("Product: ", product, "<br>Commission Earned: £", round(x, 2))) %>%
+  layout(title = "Commission Earned by Product Type",
+         xaxis = list(title = "Product Type"),
+         yaxis = list(title = "Total Commission Earned (£)"))
+```
+
+
+### Sales Rep Performance Analysis
+
+```{r}
+plot_ly(data = marketing_purchase_summary, x = ~product) %>%
+  add_trace(y = ~total_marketing_spend, type = "bar", name = "Marketing Spend ($)") %>%
+  add_trace(y = ~total_products_sold, type = "scatter", mode = "lines+markers", name = "Number of Products Sold") %>%
+  layout(title = "Marketing Spend vs. Number of Products Sold by Product Category",
+         xaxis = list(title = "Product"),
+         yaxis = list(title = "Amount ($)", side = "left"),
+         yaxis2 = list(title = "Number of Products Sold", side = "right",
+                       overlaying = "y", showgrid = FALSE),
+         legend = list(x = 0.1, y = 0.9))
+```
+
+Row
+-----------------------------------------------------------------------
+
+### Customer Segmentation Analysis
+
+```{r}
+plot_ly(data = commission_by_profile, labels = ~buyer, values = ~x, type = "pie",
+        text = ~paste("Buyer: ", buyer, "<br>Commission Earned: £", round(x, 2))) %>%
+  layout(title = "Commission Earned by Customer Profile")
+```
+
+### Promotional Effectiveness Analysis
+
+```{r}
+plot_ly(data = promo_data, x = ~Promotions, y = ~Total_Commission_Earned, type = "bar",
+        text = ~paste("Total Commission Earned: £", round(Total_Commission_Earned, 2)),
+        marker = list(color = c("blue", "blue"))) %>%
+  layout(title = "Commission Earned with and without Promotions",
+         xaxis = list(title = "Promotions"),
+         yaxis = list(title = "Total Commission Earned (£)"))
+
+```
+
